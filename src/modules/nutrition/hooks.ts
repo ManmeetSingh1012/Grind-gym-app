@@ -2,12 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import type { GoalType } from "@/modules/goals/schemas";
 import type {
   CreateFoodLogInput,
   DaySummary,
   FoodCandidate,
   FoodLog,
   NutritionTargets,
+  Pace,
   ParsedMeal,
 } from "./schemas";
 
@@ -66,6 +68,29 @@ export function useSaveTargets() {
   return useMutation({
     mutationFn: (input: Partial<Omit<NutritionTargets, "source">>) => api.put<NutritionTargets>("/nutrition/targets", input),
     onSuccess: invalidate,
+  });
+}
+
+/** Live preview of targets for a goal + pace (nothing is saved). */
+export function useTargetPreview(choice: { goal: GoalType; pace: Pace }, enabled: boolean) {
+  return useQuery({
+    queryKey: ["nutrition", "targets", "preview", choice.goal, choice.pace],
+    queryFn: () => api.post<NutritionTargets>("/nutrition/targets/calculate", { ...choice, save: false }),
+    enabled,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useSaveCalculatedTargets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (choice: { goal: GoalType; pace: Pace }) =>
+      api.post<NutritionTargets>("/nutrition/targets/calculate", { ...choice, save: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: nutritionKeys.all });
+      qc.invalidateQueries({ queryKey: ["goals"] });
+    },
   });
 }
 

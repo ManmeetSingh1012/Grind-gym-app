@@ -25,12 +25,9 @@ const searchResponse = z.object({
  */
 export async function searchUsdaFoods(query: string): Promise<FoodCandidate[]> {
   // USDA rejects `+` for spaces (URLSearchParams' encoding), so encode with %20.
-  const params = {
-    api_key: serverEnv().USDA_API_KEY,
-    query,
-    pageSize: "12",
-    dataType: "Foundation,SR Legacy,Survey (FNDDS),Branded",
-  };
+  // No explicit dataType filter: naming "Survey (FNDDS)" makes some queries 400, while the
+  // unfiltered search covers the same data types.
+  const params = { api_key: serverEnv().USDA_API_KEY, query, pageSize: "30" };
   const qs = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
     .join("&");
@@ -45,31 +42,51 @@ export async function searchUsdaFoods(query: string): Promise<FoodCandidate[]> {
   const parsed = searchResponse.safeParse(await res.json());
   if (!parsed.success) throw upstream("Unexpected food database response");
 
-  return parsed.data.foods.map((f) => {
+  const ranked = [...parsed.data.foods].sort((a, b) => typeRank(a.dataType) - typeRank(b.dataType)).slice(0, 12);
+  return ranked.flatMap((f) => {
     const byId = new Map(f.foodNutrients.map((n) => [n.nutrientId, n.value ?? 0]));
     const micros: Micros = {};
     for (const n of MICRONUTRIENTS) {
-      const total = n.usda.reduce((sum: number, id) => sum + (byId.get(id) ?? 0), 0);
-      // Folate: prefer DFE (first id) over total folate when both exist.
-      const value = n.key === "folate_ug" ? (byId.get(1190) ?? byId.get(1177) ?? 0) : total;
+      const ids: readonly number[] = n.usda;
+      // Most ids are parts of a whole (omega-3 = ALA + EPA + DHA) and add up; for folate and
+      // sugar they are alternative measurements, so take the first one present.
+      const value = ALTERNATIVE_IDS.has(n.key)
+        ? (ids.map((id) => byId.get(id)).find((v) => v != null) ?? 0)
+        : ids.reduce((sum, id) => sum + (byId.get(id) ?? 0), 0);
       if (value) micros[n.key] = round(value);
     }
-    return {
-      ref: `usda:${f.fdcId}`,
-      name: f.brandName ? `${titleCase(f.description)} (${f.brandName})` : titleCase(f.description),
-      quantity: 100,
-      unit: "g",
-      grams_per_unit: 1,
-      calories: round(byId.get(MACRO_USDA_IDS.calories) ?? 0, 0),
-      protein_g: round(byId.get(MACRO_USDA_IDS.protein_g) ?? 0, 1),
-      carbs_g: round(byId.get(MACRO_USDA_IDS.carbs_g) ?? 0, 1),
-      fat_g: round(byId.get(MACRO_USDA_IDS.fat_g) ?? 0, 1),
-      micros,
-      source: "usda" as const,
-    };
+    // Foundation foods may report energy only as Atwater values (2047 general, 2048 specific).
+    const calories = byId.get(MACRO_USDA_IDS.calories) || byId.get(2048) || byId.get(2047) || 0;
+    // Some records in search results carry no energy/macro data at all; skip rather than show 0 kcal.
+    if (!calories) return [];
+
+    return [
+      {
+        ref: `usda:${f.fdcId}`,
+        name: f.brandName ? `${titleCase(f.description)} (${f.brandName})` : titleCase(f.description),
+        quantity: 100,
+        unit: "g",
+        grams_per_unit: 1,
+        calories: round(calories, 0),
+        protein_g: round(byId.get(MACRO_USDA_IDS.protein_g) ?? 0, 1),
+        carbs_g: round(byId.get(MACRO_USDA_IDS.carbs_g) ?? 0, 1),
+        fat_g: round(byId.get(MACRO_USDA_IDS.fat_g) ?? 0, 1),
+        micros,
+        source: "usda" as const,
+      },
+    ];
   });
 }
 
+const ALTERNATIVE_IDS = new Set<string>(["folate_ug", "sugar_g"]);
+
 function titleCase(s: string) {
   return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Generic reference foods first; branded products (often odd serving data) last. */
+function typeRank(dataType?: string) {
+  const order = ["Foundation", "SR Legacy", "Survey (FNDDS)"];
+  const i = dataType ? order.indexOf(dataType) : -1;
+  return i === -1 ? order.length : i;
 }

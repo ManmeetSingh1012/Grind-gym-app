@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { goalType } from "@/modules/goals/schemas";
+import { activityLevel } from "@/modules/profile/schemas";
 import { MICRO_KEYS } from "./nutrients";
 
 export const mealType = z.enum(["breakfast", "lunch", "dinner", "snack"]);
@@ -54,6 +56,29 @@ export const updateFoodLogInput = foodLogFields.partial();
 
 export const dateQuery = z.object({ date: z.iso.date().optional() });
 
+export const pace = z.enum(["slow", "moderate", "fast"]);
+export type Pace = z.infer<typeof pace>;
+
+/** How calculated targets were derived; shown to the user as the "working". */
+export const targetCalculationSchema = z.object({
+  goal: goalType,
+  pace: pace.nullable(),
+  bmr: z.number(),
+  bmr_source: z.enum(["scan", "formula"]),
+  scan_date: z.string().nullable(),
+  activity_level: activityLevel,
+  activity_factor: z.number(),
+  maintenance: z.number(),
+  adjustment: z.number(),
+  weekly_change_kg: z.number().nullable(),
+  floored: z.boolean(),
+  weight_kg: z.number(),
+  lean_mass_kg: z.number().nullable(),
+  protein_per_kg: z.number(),
+  missing_profile: z.array(z.string()),
+});
+export type TargetCalculation = z.infer<typeof targetCalculationSchema>;
+
 export const nutritionTargetsSchema = z.object({
   calories: z.coerce.number(),
   protein_g: z.coerce.number(),
@@ -61,9 +86,21 @@ export const nutritionTargetsSchema = z.object({
   fat_g: z.coerce.number(),
   micros: microsSchema,
   source: z.enum(["calculated", "ai_plan", "manual"]),
+  goal_type: goalType.nullish(),
+  pace: pace.nullish(),
+  calculation: targetCalculationSchema.nullish(),
 });
 export type NutritionTargets = z.infer<typeof nutritionTargetsSchema>;
-export const updateTargetsInput = nutritionTargetsSchema.omit({ source: true }).partial();
+export const updateTargetsInput = nutritionTargetsSchema
+  .pick({ calories: true, protein_g: true, carbs_g: true, fat_g: true, micros: true })
+  .partial();
+
+export const calculateTargetsInput = z.object({
+  goal: goalType,
+  pace: pace.default("moderate"),
+  /** false = preview only; true = save as the daily targets and make it the active goal. */
+  save: z.boolean().default(false),
+});
 
 export type NutritionTotals = Pick<FoodLog, "calories" | "protein_g" | "carbs_g" | "fat_g"> & {
   micros: Record<string, number>;

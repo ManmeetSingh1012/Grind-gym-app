@@ -5,7 +5,7 @@
  */
 export const MICRONUTRIENTS = [
   { key: "fiber_g", label: "Fiber", unit: "g", male: 38, female: 25, kind: "target", usda: [1079] },
-  { key: "sugar_g", label: "Sugar", unit: "g", male: 50, female: 50, kind: "limit", usda: [2000] },
+  { key: "sugar_g", label: "Sugar", unit: "g", male: 50, female: 50, kind: "limit", usda: [2000, 1063] },
   { key: "saturated_fat_g", label: "Saturated fat", unit: "g", male: 22, female: 20, kind: "limit", usda: [1258] },
   { key: "cholesterol_mg", label: "Cholesterol", unit: "mg", male: 300, female: 300, kind: "limit", usda: [1253] },
   { key: "sodium_mg", label: "Sodium", unit: "mg", male: 2300, female: 2300, kind: "limit", usda: [1093] },

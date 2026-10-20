@@ -6,7 +6,7 @@ An installable Android PWA for tracking workouts (Mon–Sat routine), food (calo
 
 - **Workouts**: a weekly routine by day (Mon–Sat). Add exercises by **typing or speaking** (mic button). Unknown exercises are identified by AI with **web search**, and phrases like _"bench 3×8 at 80"_ log the sets too. Log, edit and delete sets (weight × reps). Each exercise shows the last session, the best set, estimated 1RM, **when it was last updated**, and **when you last lifted the weight you're typing**.
 - **AI coach**: looks at the last 8 weeks and gives a trend and next-session target for each exercise, plus weekly sets per muscle and warnings.
-- **Food**: describe or speak a meal. AI splits it into items with calories, protein, carbs, fat and 24 vitamins/minerals. You can also search the USDA database or enter food by hand. Targets come from your profile, goal and body scan, with sex-specific reference intakes.
+- **Food**: pick a goal (lose fat, build muscle, recomp…) and pace, tap to see the working (BMR → maintenance → goal adjustment → daily target, macros and expected kg/week) and save it as your daily target. Then describe or speak a meal. AI splits it into items with calories, protein, carbs, fat and 24 vitamins/minerals. You can also search the USDA database or enter food by hand. Targets come from your profile, goal and body scan, with sex-specific reference intakes.
 - **Body**: upload a body composition report (InBody etc.). Claude vision reads every value. It then generates a **diet + gym + cardio plan** that covers **how to change each exercise you already do**. You can apply the plan's nutrition targets and/or its weekly split with one tap.
 - **Goals**: one active goal (lose fat, build muscle, recomp, strength…). Targets and AI output aim at it.
 
@@ -84,6 +84,7 @@ Deploy (e.g. Vercel: set the same env vars) and open the HTTPS URL in Chrome. Th
 | PATCH/DELETE | `/api/v1/nutrition/logs/:id` | edit / delete a food |
 | GET | `/api/v1/nutrition/summary?date=` | totals vs targets |
 | GET/PUT/DELETE | `/api/v1/nutrition/targets` | get / customise / reset targets |
+| POST | `/api/v1/nutrition/targets/calculate` | preview (`save:false`) or save targets for a goal + pace |
 | GET | `/api/v1/nutrition/foods/search?q=` | USDA search |
 | POST | `/api/v1/nutrition/parse` | AI: meal text → itemised nutrition |
 | GET/POST | `/api/v1/body-scans` | list / upload report image (multipart `file`) |

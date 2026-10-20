@@ -12,6 +12,7 @@ import { MEALS, type FoodLog, type MealType } from "../schemas";
 import { AddFoodSheet } from "./add-food-sheet";
 import { MacroSummary, MicroSummary } from "./day-totals";
 import { EditFoodSheet } from "./edit-food-sheet";
+import { TargetsCard } from "./targets-card";
 
 function shiftDate(iso: string, days: number) {
   const d = new Date(`${iso}T00:00:00`);
@@ -65,6 +66,7 @@ export function NutritionDay() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
+          <TargetsCard targets={data.targets} />
           <MacroSummary totals={data.totals} targets={data.targets} />
 
           {MEALS.map((meal) => {
@@ -73,8 +75,9 @@ export function NutritionDay() {
             return (
               <Card key={meal} className="p-0">
                 <div className="flex items-center justify-between px-4 pt-3 pb-1">
-                  <h3 className="font-semibold capitalize">
-                    {meal} {kcal ? <span className="text-sm font-normal text-muted">· {formatNumber(kcal)} kcal</span> : null}
+                  <h3 className="font-semibold">
+                    <span className="capitalize">{meal}</span>{" "}
+                    {kcal ? <span className="text-sm font-normal text-muted">· {formatNumber(kcal)} kcal</span> : null}
                   </h3>
                   <Button variant="ghost" size="icon-sm" aria-label={`Add to ${meal}`} onClick={() => setAdding(meal)}>
                     <Plus className="h-4 w-4" />
@@ -108,9 +111,6 @@ export function NutritionDay() {
           })}
 
           <MicroSummary totals={data.totals} targets={data.targets} />
-          <p className="text-center text-xs text-muted">
-            Targets: {data.targets.source === "ai_plan" ? "from your AI plan" : data.targets.source === "manual" ? "custom" : "calculated from your profile & goal"}
-          </p>
         </div>
       )}
 

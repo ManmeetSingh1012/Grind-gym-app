@@ -6,7 +6,8 @@ import { unwrap } from "@/lib/api/handler";
 import { toIsoDate } from "@/lib/dates";
 import type { SupabaseServerClient } from "@/lib/supabase/server";
 import { latestScan } from "@/modules/body/service";
-import { activeGoal } from "@/modules/goals/service";
+import { GOAL_LABELS, type GoalType } from "@/modules/goals/schemas";
+import { activeGoal, createGoal, updateGoal } from "@/modules/goals/service";
 import { getProfile } from "@/modules/profile/service";
 import { MICRO_KEYS, round } from "./nutrients";
 import {
@@ -20,6 +21,7 @@ import {
   type FoodLog,
   type NutritionTargets,
   type NutritionTotals,
+  type Pace,
   type ParsedMeal,
 } from "./schemas";
 import { calculateTargets } from "./targets";
@@ -47,19 +49,64 @@ export async function deleteFoodLog(db: SupabaseServerClient, id: string) {
 
 // ---- Targets --------------------------------------------------------------
 
-/** Stored targets if the user has any, otherwise calculated from profile, goal and latest scan. */
+/**
+ * The user's daily targets. Calculated targets are recomputed on every read from the saved
+ * goal + pace, so a new scan or weight flows through automatically; AI-plan and manual
+ * targets are fixed numbers. Without saved targets, the active goal at moderate pace is used.
+ */
 export async function getTargets(db: SupabaseServerClient, userId: string): Promise<NutritionTargets> {
-  const stored = unwrap(await db.from("nutrition_targets").select("*").eq("user_id", userId).maybeSingle());
+  const row = unwrap(await db.from("nutrition_targets").select("*").eq("user_id", userId).maybeSingle());
+  const stored = row ? nutritionTargetsSchema.parse(row) : null;
+
+  if (!stored || stored.source === "calculated") {
+    return computeTargets(db, userId, { goal: stored?.goal_type, pace: stored?.pace });
+  }
   const computed = await computeTargets(db, userId);
-  if (!stored) return computed;
-  const parsed = nutritionTargetsSchema.parse(stored);
   // Fill any micronutrient the stored targets don't cover.
-  return { ...parsed, micros: { ...computed.micros, ...parsed.micros } };
+  return { ...stored, micros: { ...computed.micros, ...stored.micros } };
 }
 
-export async function computeTargets(db: SupabaseServerClient, userId: string) {
+export async function computeTargets(
+  db: SupabaseServerClient,
+  userId: string,
+  choice: { goal?: GoalType | null; pace?: Pace | null } = {},
+) {
   const [profile, goal, scan] = await Promise.all([getProfile(db, userId), activeGoal(db), latestScan(db)]);
-  return calculateTargets({ profile, goal: goal?.type, scan });
+  return calculateTargets({ profile, goal: choice.goal ?? goal?.type, pace: choice.pace, scan });
+}
+
+/**
+ * Preview (or save) targets for a goal + pace. Saving also makes that goal type the
+ * active goal, so the AI plan and coach aim at the same thing.
+ */
+export async function calculateAndMaybeSave(
+  db: SupabaseServerClient,
+  userId: string,
+  input: { goal: GoalType; pace: Pace; save: boolean },
+): Promise<NutritionTargets> {
+  const targets = await computeTargets(db, userId, input);
+  if (!input.save) return targets;
+
+  unwrap(
+    await db.from("nutrition_targets").upsert({
+      user_id: userId,
+      calories: targets.calories,
+      protein_g: targets.protein_g,
+      carbs_g: targets.carbs_g,
+      fat_g: targets.fat_g,
+      micros: targets.micros,
+      source: "calculated",
+      goal_type: input.goal,
+      pace: targets.pace,
+      calculation: targets.calculation,
+    }),
+  );
+
+  const goal = await activeGoal(db);
+  if (!goal) await createGoal(db, { type: input.goal, title: GOAL_LABELS[input.goal], training_days: 6, is_active: true });
+  else if (goal.type !== input.goal) await updateGoal(db, goal.id, { type: input.goal });
+
+  return targets;
 }
 
 export async function saveTargets(
@@ -69,7 +116,15 @@ export async function saveTargets(
   source: NutritionTargets["source"] = "manual",
 ) {
   const current = await getTargets(db, userId);
-  const next = { ...current, ...input, micros: { ...current.micros, ...input.micros }, source, user_id: userId };
+  // Fixed numbers from here on: drop the calculation so stale "working" isn't shown.
+  const next = {
+    ...current,
+    ...input,
+    micros: { ...current.micros, ...input.micros },
+    source,
+    calculation: null,
+    user_id: userId,
+  };
   return nutritionTargetsSchema.parse(
     unwrap(await db.from("nutrition_targets").upsert(next).select("*").single()),
   );
