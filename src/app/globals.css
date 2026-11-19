@@ -36,10 +36,24 @@ html {
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgb(198 244 50 / 0.07), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
   overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(198 244 50 / 0.3);
+}
+
+/* Thin, unobtrusive scrollbars on desktop. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 input[type="number"]::-webkit-inner-spin-button,

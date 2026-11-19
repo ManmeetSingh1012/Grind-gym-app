@@ -105,8 +105,29 @@ function DescribeTab({ onLog, saving }: { onLog: LogFn; saving: boolean }) {
   const [text, setText] = useState("");
   const parse = useParseMeal();
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
-  const items = parse.data?.items ?? [];
+  /** Hand-corrected calories per item index; macros scale with the same ratio. */
+  const [kcalEdits, setKcalEdits] = useState<Record<number, string>>({});
+  const items = (parse.data?.items ?? []).map((item, i) => {
+    const edited = kcalEdits[i];
+    if (edited === undefined || edited === "") return item;
+    const kcal = Math.max(0, Number(edited) || 0);
+    const f = item.calories ? kcal / item.calories : 1;
+    return {
+      ...item,
+      calories: kcal,
+      protein_g: round(item.protein_g * f, 1),
+      carbs_g: round(item.carbs_g * f, 1),
+      fat_g: round(item.fat_g * f, 1),
+      micros: scaleMicros(item.micros, f) as typeof item.micros,
+    };
+  });
   const chosen = items.filter((_, i) => !excluded.has(i));
+  const toggle = (i: number) => {
+    const next = new Set(excluded);
+    if (next.has(i)) next.delete(i);
+    else next.add(i);
+    setExcluded(next);
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -115,6 +136,7 @@ function DescribeTab({ onLog, saving }: { onLog: LogFn; saving: boolean }) {
         onChange={setText}
         onSubmit={(v) => {
           setExcluded(new Set());
+          setKcalEdits({});
           parse.mutate(v);
         }}
         placeholder='e.g. "3 egg omelette, 2 toast and black coffee"'
@@ -129,38 +151,46 @@ function DescribeTab({ onLog, saving }: { onLog: LogFn; saving: boolean }) {
         </>
       ) : null}
       {items.map((item, i) => (
-        <button
+        <div
           key={i}
-          onClick={() => {
-            const next = new Set(excluded);
-            if (next.has(i)) next.delete(i);
-            else next.add(i);
-            setExcluded(next);
-          }}
           className={cn(
-            "flex items-start gap-3 rounded-xl border p-3 text-left transition",
+            "flex items-start gap-3 rounded-xl border p-3 transition",
             excluded.has(i) ? "border-border opacity-50" : "border-accent/40 bg-accent/5",
           )}
         >
-          <span
+          <button
+            type="button"
+            onClick={() => toggle(i)}
+            aria-label={excluded.has(i) ? `Include ${item.name}` : `Exclude ${item.name}`}
             className={cn(
               "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
               excluded.has(i) ? "border-border" : "border-accent bg-accent text-accent-foreground",
             )}
           >
             {excluded.has(i) ? null : <Check className="h-3.5 w-3.5" />}
-          </span>
-          <span className="flex-1">
+          </button>
+          <button type="button" onClick={() => toggle(i)} className="min-w-0 flex-1 text-left">
             <span className="font-medium">{item.name}</span>
             <span className="block text-xs text-muted">
               {formatNumber(item.quantity, 1)} {item.unit} (~{formatNumber(item.grams_total)} g)
             </span>
-            <span className="mt-1 block text-xs tabular-nums">
-              {formatNumber(item.calories)} kcal · P {formatNumber(item.protein_g, 1)} · C {formatNumber(item.carbs_g, 1)} · F{" "}
-              {formatNumber(item.fat_g, 1)}
+            <span className="mt-1 block text-xs tabular-nums text-muted">
+              P {formatNumber(item.protein_g, 1)} · C {formatNumber(item.carbs_g, 1)} · F {formatNumber(item.fat_g, 1)}
             </span>
-          </span>
-        </button>
+          </button>
+          <label className="flex shrink-0 flex-col items-end">
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              aria-label={`Calories for ${item.name}`}
+              value={kcalEdits[i] ?? String(item.calories)}
+              onChange={(e) => setKcalEdits({ ...kcalEdits, [i]: e.target.value })}
+              className="h-9 w-20 rounded-lg border border-border bg-surface-2 px-2 text-right font-semibold tabular-nums outline-none focus:border-accent/60"
+            />
+            <span className="mt-0.5 text-[10px] text-muted">kcal · edit</span>
+          </label>
+        </div>
       ))}
       {chosen.length ? (
         <Button

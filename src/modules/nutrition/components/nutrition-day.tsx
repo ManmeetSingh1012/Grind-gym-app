@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageCircle, Plus } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/bottom-nav";
 import { Button } from "@/components/ui/button";
@@ -37,9 +38,16 @@ export function NutritionDay() {
       <PageHeader
         title="Food"
         action={
-          <Button size="sm" onClick={() => setAdding(mealForNow())}>
-            <Plus className="h-4 w-4" /> Log food
-          </Button>
+          <div className="flex gap-2">
+            <Link href="/coach">
+              <Button size="sm" variant="secondary" aria-label="Ask the diet coach">
+                <MessageCircle className="h-4 w-4" /> Coach
+              </Button>
+            </Link>
+            <Button size="sm" onClick={() => setAdding(mealForNow())}>
+              <Plus className="h-4 w-4" /> Log food
+            </Button>
+          </div>
         }
       />
 

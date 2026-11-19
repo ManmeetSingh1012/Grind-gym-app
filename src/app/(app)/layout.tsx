@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { ClientOnly } from "@/components/client-only";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Skeleton } from "@/components/ui/card";
+import { MotivationScheduler } from "@/modules/motivation/components/motivation-scheduler";
 
 function PageFallback() {
   return (
@@ -25,6 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Suspense fallback={<div className="fixed inset-x-0 bottom-0 h-16 border-t border-border bg-background" />}>
         <BottomNav />
       </Suspense>
+      <MotivationScheduler />
     </>
   );
 }

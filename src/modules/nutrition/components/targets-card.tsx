@@ -18,11 +18,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { formatDate } from "@/lib/dates";
 import { cn, formatNumber } from "@/lib/utils";
 import type { GoalType } from "@/modules/goals/schemas";
-import { useSaveCalculatedTargets, useTargetPreview } from "../hooks";
+import { useResetTargets, useSaveCalculatedTargets, useSaveTargets, useTargetPreview } from "../hooks";
 import type { NutritionTargets, Pace, TargetCalculation } from "../schemas";
 import { GOALS_WITH_PACE, WEEKLY_CHANGE_KG } from "../targets";
 
@@ -87,6 +88,7 @@ export function TargetsCard({ targets }: { targets: NutritionTargets }) {
       </button>
       {open ? (
         <TargetsSheet
+          current={targets}
           onClose={() => setOpen(false)}
           initialGoal={goal ?? "recomp"}
           initialPace={targets.pace ?? c?.pace ?? "moderate"}
@@ -98,11 +100,13 @@ export function TargetsCard({ targets }: { targets: NutritionTargets }) {
 }
 
 function TargetsSheet({
+  current,
   onClose,
   initialGoal,
   initialPace,
   replacing,
 }: {
+  current: NutritionTargets;
   onClose: () => void;
   initialGoal: GoalType;
   initialPace: Pace;
@@ -114,10 +118,31 @@ function TargetsSheet({
   const save = useSaveCalculatedTargets();
   const hasPace = GOALS_WITH_PACE.includes(goal);
   const t = preview.data;
+  const [mode, setMode] = useState<"goal" | "custom">(current.source === "manual" ? "custom" : "goal");
 
   return (
     <Sheet open onClose={onClose} title="Set your daily target">
-      <div className="flex flex-col gap-5">
+      <div className="mb-5 grid grid-cols-2 gap-1 rounded-2xl bg-surface-2 p-1">
+        {(
+          [
+            ["goal", "From my goal"],
+            ["custom", "Custom numbers"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setMode(id)}
+            className={cn(
+              "rounded-xl py-2 text-sm font-semibold transition",
+              mode === id ? "bg-accent text-accent-foreground" : "text-muted hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === "custom" ? <CustomTargets current={current} onDone={onClose} /> : null}
+      <div className={cn("flex flex-col gap-5", mode === "custom" && "hidden")}>
         <section>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">1 · Your goal</h4>
           <div className="grid grid-cols-2 gap-2">
@@ -201,6 +226,116 @@ function TargetsSheet({
         </Button>
       </div>
     </Sheet>
+  );
+}
+
+/** Type your own calorie and macro targets. */
+function CustomTargets({ current, onDone }: { current: NutritionTargets; onDone: () => void }) {
+  const [values, setValues] = useState({
+    calories: String(Math.round(current.calories)),
+    protein_g: String(Math.round(current.protein_g)),
+    carbs_g: String(Math.round(current.carbs_g)),
+    fat_g: String(Math.round(current.fat_g)),
+  });
+  const save = useSaveTargets();
+  const reset = useResetTargets();
+  const n = (v: string) => Math.max(0, Number(v) || 0);
+  const macroKcal = n(values.protein_g) * 4 + n(values.carbs_g) * 4 + n(values.fat_g) * 9;
+  const diff = macroKcal - n(values.calories);
+
+  /** Re-split carbs so the macros add up to the calorie number. */
+  function fitCarbs() {
+    const carbs = Math.max(0, (n(values.calories) - n(values.protein_g) * 4 - n(values.fat_g) * 9) / 4);
+    setValues({ ...values, carbs_g: String(Math.round(carbs)) });
+  }
+
+  const macroFields = [
+    { key: "protein_g", label: "Protein (g)" },
+    { key: "carbs_g", label: "Carbs (g)" },
+    { key: "fat_g", label: "Fat (g)" },
+  ] as const;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl bg-surface-2 p-4 text-center">
+        <input
+          type="number"
+          inputMode="numeric"
+          aria-label="Daily calories"
+          value={values.calories}
+          onChange={(e) => setValues({ ...values, calories: e.target.value })}
+          className="w-full bg-transparent text-center text-5xl font-bold tracking-tight tabular-nums text-accent outline-none"
+        />
+        <p className="text-sm text-muted">kcal per day · tap the number to type</p>
+        <div className="mt-3 flex justify-center gap-2">
+          {[-250, -100, 100, 250].map((d) => (
+            <button
+              key={d}
+              onClick={() => setValues({ ...values, calories: String(Math.max(0, n(values.calories) + d)) })}
+              className="rounded-full border border-border px-3 py-1 text-xs font-semibold tabular-nums text-muted transition hover:border-accent/50 hover:text-foreground"
+            >
+              {d > 0 ? "+" : "−"}
+              {Math.abs(d)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {macroFields.map(({ key, label }) => (
+          <Field key={key} label={label}>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              value={values[key]}
+              onChange={(e) => setValues({ ...values, [key]: e.target.value })}
+            />
+          </Field>
+        ))}
+      </div>
+      {Math.abs(diff) > 50 ? (
+        <button onClick={fitCarbs} className="rounded-xl bg-warning/10 p-3 text-left text-xs text-warning">
+          Macros add up to {formatNumber(macroKcal)} kcal ({diff > 0 ? "+" : "−"}
+          {formatNumber(Math.abs(diff))} vs your target). Tap to adjust carbs to fit.
+        </button>
+      ) : (
+        <p className="text-xs text-muted">Macros add up to {formatNumber(macroKcal)} kcal.</p>
+      )}
+      <Button
+        size="lg"
+        loading={save.isPending}
+        disabled={!n(values.calories)}
+        onClick={() =>
+          save.mutate(
+            { calories: n(values.calories), protein_g: n(values.protein_g), carbs_g: n(values.carbs_g), fat_g: n(values.fat_g) },
+            {
+              onSuccess: (saved) => {
+                toast.success(`Daily target set: ${formatNumber(saved.calories)} kcal`);
+                onDone();
+              },
+            },
+          )
+        }
+      >
+        Save custom target
+      </Button>
+      {current.source === "manual" ? (
+        <Button
+          variant="ghost"
+          loading={reset.isPending}
+          onClick={() =>
+            reset.mutate(undefined, {
+              onSuccess: () => {
+                toast.success("Back to calculated targets");
+                onDone();
+              },
+            })
+          }
+        >
+          Reset to calculated
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

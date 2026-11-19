@@ -2,6 +2,7 @@ import "server-only";
 import { unstable_rethrow } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { bearerToken, createBearerClient } from "@/lib/supabase/bearer";
 import { createClient, type SupabaseServerClient } from "@/lib/supabase/server";
 import { ApiError } from "./errors";
 
@@ -31,10 +32,7 @@ export function apiRoute<TBody = undefined, TQuery = undefined>(
 ) {
   return async (req: NextRequest, routeCtx: { params: Promise<Record<string, string>> }) => {
     try {
-      const supabase = await createClient();
-      const { data: claims } = await supabase.auth.getClaims();
-      const userId = claims?.claims.sub;
-      if (!userId) throw new ApiError(401, "unauthorized", "Sign in required");
+      const { supabase, userId } = await authenticate(req);
 
       const query = options.query
         ? parseOrThrow(options.query, Object.fromEntries(req.nextUrl.searchParams), "query")
@@ -57,6 +55,20 @@ export function apiRoute<TBody = undefined, TQuery = undefined>(
       return toErrorResponse(err);
     }
   };
+}
+
+/**
+ * Resolves the caller: the browser session cookie, or `Authorization: Bearer <access token>`
+ * for external clients (MCP bridge, scripts). Either way RLS scopes every query to that user.
+ */
+export async function authenticate(req: NextRequest): Promise<{ supabase: SupabaseServerClient; userId: string }> {
+  const token = bearerToken(req.headers);
+  const supabase = token ? createBearerClient(token) : await createClient();
+  // A malformed token makes getClaims throw (e.g. bad base64) rather than return an error: treat it as signed out.
+  const result = await (token ? supabase.auth.getClaims(token) : supabase.auth.getClaims()).catch(() => null);
+  const userId = result?.data?.claims.sub;
+  if (!userId) throw new ApiError(401, "unauthorized", token ? "Invalid or expired token" : "Sign in required");
+  return { supabase, userId };
 }
 
 function parseOrThrow<T>(schema: z.ZodType<T>, input: unknown, where: string): T {

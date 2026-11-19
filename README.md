@@ -9,6 +9,11 @@ An installable Android PWA for tracking workouts (Mon–Sat routine), food (calo
 - **Food**: pick a goal (lose fat, build muscle, recomp…) and pace, tap to see the working (BMR → maintenance → goal adjustment → daily target, macros and expected kg/week) and save it as your daily target. Then describe or speak a meal. AI splits it into items with calories, protein, carbs, fat and 24 vitamins/minerals. You can also search the USDA database or enter food by hand. Targets come from your profile, goal and body scan, with sex-specific reference intakes.
 - **Body**: upload a body composition report (InBody etc.). Claude vision reads every value. It then generates a **diet + gym + cardio plan** that covers **how to change each exercise you already do**. You can apply the plan's nutrition targets and/or its weekly split with one tap.
 - **Goals**: one active goal (lose fat, build muscle, recomp, strength…). Targets and AI output aim at it.
+- **Editable numbers**: correct calories/macros on any logged food or AI estimate, or type a fully custom daily calorie + macro target (Food → Daily target → Custom numbers).
+- **Diet coach chat** (`/coach`): type or speak. It knows your targets and today's food, answers diet questions, and turns "I just had…" into a one-tap log. Optional spoken replies.
+- **Voice sets**: tap the mic on any exercise and say "80 kg 8 reps", "3 sets of 10 at 60" or just "10" (uses the weight in the box). Parsed on-device, no AI call.
+- **Motivation nudges**: Profile → Motivation nudges. Notifications between 12–3 pm and 5–10 pm, tailored to whether you trained and how much protein is left. Savage (Hinglish) or clean tone. Fires while the app is open/backgrounded; installed PWAs also get best-effort background nudges via Periodic Background Sync.
+- **MCP server**: other AIs (Claude Desktop, Claude Code, Cursor…) can read your day, log meals and sets, and edit targets. See [MCP](#mcp).
 
 ## Tech
 
@@ -87,6 +92,7 @@ Deploy (e.g. Vercel: set the same env vars) and open the HTTPS URL in Chrome. Th
 | POST | `/api/v1/nutrition/targets/calculate` | preview (`save:false`) or save targets for a goal + pace |
 | GET | `/api/v1/nutrition/foods/search?q=` | USDA search |
 | POST | `/api/v1/nutrition/parse` | AI: meal text → itemised nutrition |
+| POST | `/api/v1/nutrition/chat` | diet coach chat: `{ messages, date }` → `{ reply, foods, meal }` |
 | GET/POST | `/api/v1/body-scans` | list / upload report image (multipart `file`) |
 | PATCH/DELETE | `/api/v1/body-scans/:id` | correct values / delete |
 | GET/POST | `/api/v1/plans` | latest / generate AI plan |
@@ -96,3 +102,33 @@ Deploy (e.g. Vercel: set the same env vars) and open the HTTPS URL in Chrome. Th
 | GET/POST, PATCH/DELETE | `/api/v1/goals`, `/api/v1/goals/:id` | goals |
 
 A breaking change to the API ships as `/api/v2/...` next to v1. The handlers are thin, so v2 can reuse the same module services.
+
+Every `/api/v1` route also accepts `Authorization: Bearer <Supabase access token>` instead of the session cookie, for scripts and external tools.
+
+## MCP
+
+`POST /api/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server (Streamable HTTP, stateless). Tools are defined in `src/modules/mcp/tools.ts`:
+
+`get_profile`, `get_nutrition_day`, `log_meal` (free text → AI → logged), `log_food`, `update_food_log`, `delete_food_log`, `set_nutrition_targets`, `diet_coach`, `get_workout_day`, `search_exercises`, `log_sets`, `get_exercise_history`, `get_coach_insights`.
+
+Supabase access tokens expire hourly, so most clients should use the stdio bridge `mcp/grind-mcp.mjs`. It signs in with your Grind email + password, refreshes the token, and forwards to `/api/mcp`. Run the app (`npm run dev`), then add this to your client's MCP config (Claude Desktop `claude_desktop_config.json`, Cursor `.cursor/mcp.json`, …):
+
+```json
+{
+  "mcpServers": {
+    "grind": {
+      "command": "node",
+      "args": ["/absolute/path/to/grind_gym_app/mcp/grind-mcp.mjs"],
+      "env": {
+        "GRIND_URL": "http://localhost:3000",
+        "GRIND_EMAIL": "you@example.com",
+        "GRIND_PASSWORD": "your-grind-password"
+      }
+    }
+  }
+}
+```
+
+Claude Code: `claude mcp add grind --env GRIND_EMAIL=… --env GRIND_PASSWORD=… -- node /absolute/path/to/mcp/grind-mcp.mjs`.
+
+The bridge reads the Supabase URL and publishable key from `.env.local`; set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in `env` if you run it from elsewhere. Point `GRIND_URL` at your deployed HTTPS URL to use the hosted app.

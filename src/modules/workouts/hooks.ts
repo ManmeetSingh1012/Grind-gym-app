@@ -97,6 +97,14 @@ export function useLogSet() {
   });
 }
 
+export function useLogSets() {
+  const invalidate = useInvalidateWorkouts();
+  return useMutation({
+    mutationFn: (sets: CreateSetInput[]) => api.post<SetLog[]>("/sets", { sets }),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUpdateSet() {
   const invalidate = useInvalidateWorkouts();
   return useMutation({

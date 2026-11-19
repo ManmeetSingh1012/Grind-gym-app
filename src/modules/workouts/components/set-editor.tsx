@@ -1,12 +1,15 @@
 "use client";
 
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Loader2, Mic, Pencil, Plus, Square, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDate, relativeTime } from "@/lib/dates";
+import { useSpeechRecognition } from "@/lib/hooks/use-speech-recognition";
 import { cn, formatNumber } from "@/lib/utils";
-import { useDeleteSet, useLogSet, useUpdateSet } from "../hooks";
+import { useDeleteSet, useLogSet, useLogSets, useUpdateSet } from "../hooks";
 import type { SetLog, WeightRecord } from "../schemas";
+import { parseSpokenSets } from "../voice";
 
 function NumberBox({
   value,
@@ -111,6 +114,34 @@ export function AddSetRow({
   const [weight, setWeight] = useState(suggestion ? String(suggestion.weight_kg) : "");
   const [reps, setReps] = useState(suggestion ? String(suggestion.reps) : "");
   const log = useLogSet();
+  const logMany = useLogSets();
+
+  /** Spoken set: "80 kg 8 reps", "3 sets of 10 at 60", or just "10" (uses the weight in the box). */
+  const speech = useSpeechRecognition({
+    onFinal: (heard) => {
+      const parsed = parseSpokenSets(heard, weight === "" ? undefined : Number(weight));
+      if (!parsed) {
+        toast.error(`Heard "${heard}". Try "80 kg 8 reps" or "3 sets of 10 at 60".`);
+        return;
+      }
+      setWeight(String(parsed.weight_kg));
+      setReps(String(parsed.reps));
+      logMany.mutate(
+        Array.from({ length: parsed.sets }, () => ({
+          exercise_id: exerciseId,
+          performed_on: date,
+          weight_kg: parsed.weight_kg,
+          reps: parsed.reps,
+        })),
+        {
+          onSuccess: () =>
+            toast.success(
+              `Logged ${parsed.sets > 1 ? `${parsed.sets} × ` : ""}${formatNumber(parsed.weight_kg, 2)} kg × ${parsed.reps}`,
+            ),
+        },
+      );
+    },
+  });
 
   const w = Number(weight);
   const record = weight !== "" ? byWeight.find((r) => r.weight_kg === w) : undefined;
@@ -121,6 +152,26 @@ export function AddSetRow({
       <div className="flex items-end gap-2">
         <NumberBox label="kg" value={weight} onChange={setWeight} step={0.5} />
         <NumberBox label="reps" value={reps} onChange={setReps} step={1} />
+        {speech.supported ? (
+          <button
+            type="button"
+            onClick={speech.listening ? speech.stop : speech.start}
+            aria-label={speech.listening ? "Stop listening" : "Say your set"}
+            disabled={logMany.isPending}
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-50",
+              speech.listening ? "animate-pulse-ring bg-danger text-white" : "bg-surface-2 text-foreground hover:bg-border",
+            )}
+          >
+            {logMany.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : speech.listening ? (
+              <Square className="h-4 w-4 fill-current" />
+            ) : (
+              <Mic className="h-5 w-5" />
+            )}
+          </button>
+        ) : null}
         <Button
           size="icon"
           aria-label="Add set"
@@ -139,8 +190,12 @@ export function AddSetRow({
           <Plus className="h-5 w-5" />
         </Button>
       </div>
-      <p className={cn("mt-1.5 px-1 text-xs", heavier ? "text-accent" : "text-muted")}>
-        {heavier
+      <p className={cn("mt-1.5 px-1 text-xs", heavier || speech.listening ? "text-accent" : "text-muted")}>
+        {speech.listening
+          ? speech.interim || 'Listening… say "80 kg 8 reps" or "3 sets of 10 at 60"'
+          : speech.error
+            ? speech.error
+            : heavier
           ? "New heaviest weight for this exercise 🔥"
           : record
             ? `Last time at ${formatNumber(w, 2)} kg: ${formatDate(record.lastDate)} · best ${record.bestReps} reps`
